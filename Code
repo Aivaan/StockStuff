@@ -1,0 +1,53 @@
+import yfinance as yf
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+COMPANIES = ['AAPL']
+
+sample_data = pd.read_csv('AAPL_close.csv')
+sample_data = pd.DataFrame(sample_data, columns=['date', 'close'])
+
+def download_stock_data(company):
+  data = yf.download(company, period='max')
+  data = data[['Close']]
+  return data
+
+def calculate_weekly_change(stock_data):
+  weekly_change = {}
+  dates = stock_data.columns[0]
+
+  for company in COMPANIES:
+    company_column = stock_data['close']
+    datetimes = pd.to_datetime(stock_data['date'])
+    company_data = pd.concat([datetimes, company_column], axis=1).set_index('date')
+    company_data = company_data.set_index(datetimes)
+    company_data = company_data.resample('W').last().pct_change()
+    increasing_intervals = {}
+    decreasing_intervals = {}
+
+    for i in range(1, len(company_data)):
+      change = company_data[i] - company_data[i - 1]
+      date_range = company_data.index[i].date()
+
+    if change > 0:
+      increasing_intervals.append((date_range, round(change, 2)))
+    elif change < 0:
+      decreasing_intervals.append((date_range, round(change, 2)))
+
+    weekly_change[company] = {
+    'increasing': increasing_intervals,
+    'decreasing': decreasing_intervals
+    }
+
+  return pd.DataFrame(weekly_change)
+
+weekly_change = calculate_weekly_change(sample_data)
+
+sns.set(style="darkgrid")
+plt.figure(figsize=(10, 6))
+sns.lineplot(data=weekly_change, palette="tab10", linewidth=2.5)
+plt.title("Weekly Change in Stock Prices")
+plt.xlabel("Date")
+plt.ylabel("Percentage Change")
+plt.show()
