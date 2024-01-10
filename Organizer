@@ -1,0 +1,79 @@
+import pandas as pd
+import random
+
+def create_random_text_file(csv_file, num_values, output_file):
+    df = pd.read_csv(csv_file)
+
+    symbol_values = df['Symbol'].tolist()
+
+    random_indices = random.sample(range(len(symbol_values)), min(num_values, len(symbol_values)))
+
+    random_symbols = [symbol_values[i] for i in random_indices]
+
+    with open(output_file, 'w') as file:
+        #file.write("Ticker") 
+        for symbol in random_symbols:
+            file.write(f"{symbol}\n")
+
+    print(f"Written to {output_file}")
+
+create_random_text_file('RAW_stocknames.csv', 20, 'tickers.csv')
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+
+def get_weekly_percentage_change(ticker):
+    data = yf.download(ticker, period='1y', interval='1wk', progress=False)
+    if data.empty:
+        print(f"No data available for ticker: {ticker}")
+        return pd.Series(dtype='float64')
+    close_prices = data['Close']
+    weekly_change = close_prices.pct_change() * 100
+    weekly_change.dropna(inplace=True)
+    return weekly_change
+
+# Read the tickers from the CSV file
+try:
+    ticker_df = pd.read_csv('tickers.csv')
+    tickers = ticker_df.iloc[:, 0].str.strip().values.tolist()
+except FileNotFoundError:
+    print("CSV file not found!")
+    tickers = []
+
+if not tickers:
+    print("No tickers found in the CSV file!")
+else:
+    print("Tickers:", tickers)
+
+weekly_change = pd.DataFrame()  # Empty dataframe to store weekly change
+
+for ticker in tickers:
+    ticker_weekly_change = get_weekly_percentage_change(ticker)
+    if ticker_weekly_change.empty:
+        continue
+    weekly_change[ticker] = ticker_weekly_change
+
+if weekly_change.empty:
+    print("No data available for any tickers!")
+else:
+    print(weekly_change.head())
+
+# Plotting the data
+plt.figure(figsize=(10, 6))
+for ticker in tickers:
+    try:
+        plt.plot(weekly_change.index, weekly_change[ticker], label=ticker)
+    except KeyError:
+        print(f"Skipping ticker: {ticker} due to KeyError")
+        continue
+plt.title("Weekly Percentage Change")
+plt.xlabel("Date")
+plt.ylabel("Percentage Change")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+
