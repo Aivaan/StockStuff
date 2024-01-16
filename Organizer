@@ -17,63 +17,158 @@ def create_random_text_file(csv_file, num_values, output_file):
 
     print(f"Written to {output_file}")
 
-create_random_text_file('RAW_stocknames.csv', 20, 'tickers.csv')
+create_random_text_file('RAW_stocknames.csv', 20, 'ticker.csv')
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-import yfinance as yf
+
+
+
 import pandas as pd
+import yfinance as yf
 import matplotlib.pyplot as plt
 
-def get_weekly_percentage_change(ticker):
-    data = yf.download(ticker, period='1y', interval='1wk', progress=False)
+def get_ticker_symbols():
+    ticker_symbols = pd.read_csv("ticker.csv", header=None)[0].tolist()
+    return ticker_symbols
+
+def validate_ticker_symbol(symbol):
+    ticker = yf.Ticker(symbol)
+    data = ticker.history()
+    
     if data.empty:
-        print(f"No data available for ticker: {ticker}")
-        return pd.Series(dtype='float64')
-    close_prices = data['Close']
-    weekly_change = close_prices.pct_change() * 100
-    weekly_change.dropna(inplace=True)
-    return weekly_change
+        return False
+    else:
+        return True
 
-# Read the tickers from the CSV file
-try:
-    ticker_df = pd.read_csv('tickers.csv')
-    tickers = ticker_df.iloc[:, 0].str.strip().values.tolist()
-except FileNotFoundError:
-    print("CSV file not found!")
-    tickers = []
+def get_close_weeks(start_date, end_date):
+    ticker_symbols = get_ticker_symbols()
+    valid_ticker_symbols = []
+    close_week_data = pd.DataFrame()
+    
+    for symbol in ticker_symbols:
+        if validate_ticker_symbol(symbol):
+            ticker = yf.Ticker(symbol)
+            data = ticker.history(start=start_date, end=end_date)
+            
+            if not data.empty:
+                weekly_data = data.resample('W').last().dropna()
+                
+                if not weekly_data.empty:
+                    valid_ticker_symbols.append(symbol)
+                    close_week_data[symbol] = weekly_data['Close']
+    
+    return valid_ticker_symbols, close_week_data
 
-if not tickers:
-    print("No tickers found in the CSV file!")
-else:
-    print("Tickers:", tickers)
+start_date = '2021-01-01'
+end_date = '2024-01-01'
 
-weekly_change = pd.DataFrame()  # Empty dataframe to store weekly change
+valid_symbols, close_week_data = get_close_weeks(start_date, end_date)
 
-for ticker in tickers:
-    ticker_weekly_change = get_weekly_percentage_change(ticker)
-    if ticker_weekly_change.empty:
-        continue
-    weekly_change[ticker] = ticker_weekly_change
+# Save close week data to CSV
+close_week_data.to_csv("net_changes.csv")
 
-if weekly_change.empty:
-    print("No data available for any tickers!")
-else:
-    print(weekly_change.head())
+print("Valid Ticker Symbols:")
+for symbol in valid_symbols:
+    print(symbol)
+
+print("\nClose Week Data:")
+print(close_week_data)
+print("\nClose week data saved to 'net_changes.csv'")
 
 # Plotting the data
-plt.figure(figsize=(10, 6))
-for ticker in tickers:
-    try:
-        plt.plot(weekly_change.index, weekly_change[ticker], label=ticker)
-    except KeyError:
-        print(f"Skipping ticker: {ticker} due to KeyError")
-        continue
-plt.title("Weekly Percentage Change")
+plt.figure(figsize=(12, 6))
+for symbol in close_week_data.columns:
+    plt.plot(close_week_data.index, close_week_data[symbol], label=symbol)
+
 plt.xlabel("Date")
-plt.ylabel("Percentage Change")
+plt.ylabel("Close Price")
+plt.title("Close Week Data for Ticker Symbols")
 plt.legend()
 plt.grid(True)
 plt.show()
 
 
+
+
+
+
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.cluster import KMeans
+import matplotlib.pyplot as plt
+import random
+
+# Load the close week data from the CSV file
+close_week_data = pd.read_csv("net_changes.csv", index_col=0, parse_dates=True)
+
+# Normalize the data using Min-Max normalization
+scaler = MinMaxScaler()
+normalized_data = scaler.fit_transform(close_week_data.values)
+
+# Remove outliers using standard deviation
+mean = np.mean(normalized_data, axis=0)
+std = np.std(normalized_data, axis=0)
+threshold = 3
+
+filtered_data = normalized_data[~((normalized_data - mean) > threshold * std).any(axis=1)]
+
+# Remove data with zero variance
+variances = np.var(filtered_data, axis=0)
+nonzero_variance_indices = np.where(variances != 0)[0]
+filtered_data = filtered_data[:, nonzero_variance_indices]
+
+# Handle NaN values
+filtered_data = np.nan_to_num(filtered_data)
+
+# Apply K-means clustering with more sensitivity
+k = 10  # Number of clusters
+model = KMeans(n_clusters=k, random_state=42, max_iter=1000, tol=1e-4)
+cluster_labels = model.fit_predict(filtered_data)
+
+# Create a dictionary to store tickers in each cluster
+ticker_clusters = {i: [] for i in range(k)}
+
+# Group tickers into respective clusters
+for i, ticker in enumerate(close_week_data.columns):
+    ticker_clusters[cluster_labels[i]].append(ticker)
+
+# Print the tickers in each cluster
+print("Tickers in each Cluster:")
+for cluster, tickers in ticker_clusters.items():
+    print(f"Cluster {cluster}: {', '.join(tickers)}")
+
+# Generate random colors for each cluster
+random.seed(42)
+cluster_colors = ['#' + ''.join(random.choices('0123456789ABCDEF', k=6)) for _ in range(k)]
+
+# Plotting the tickers in each cluster
+plt.figure(figsize=(12, 6))
+for cluster, tickers in ticker_clusters.items():
+    for ticker in tickers:
+        plt.plot(close_week_data.index, close_week_data[ticker], label=f"{ticker} - Cluster {cluster}", color=cluster_colors[cluster])
+
+plt.xlabel("Date")
+plt.ylabel("Close Price")
+plt.title("Close Week Data Grouped by Ticker and Cluster")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+
+
+
+import yfinance as yf
+
+user_ticker = input("Enter a stock ticker: ")
+
+# Download data for the inputted ticker using yfinance
+stock_data = yf.download(user_ticker, start="2021-01-01", end="2024-01-01", interval="1wk")
+if not stock_data.empty:
+    user_data = stock_data["Close"].values.reshape(-1, 1)
+    user_normalized_data = scaler.transform(user_data)
+    user_filtered_data = user_normalized_data[:, nonzero_variance_indices]
+    user_cluster_label = model.predict(user_filtered_data)[0]
+    
+    print(f"The stock ticker '{user_ticker}' belongs to Cluster {user_cluster_label}.")
+else:
+    print("Invalid stock ticker or no data available.")
